@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BengaluruAir · AQI Intelligence Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="lib/chart.umd.min.js"></script>
+<script>
+  // CDN fallback if local file isn't available (e.g., when deployed without lib/)
+  if (typeof Chart === 'undefined') {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"><\/script>');
+  }
+</script>
+<style>
+  /* ============================================================
+     BENGALURU PALETTE
+     ============================================================
+     - Lalbagh green       : the city's botanical lung
+     - Vidhana sandstone   : the Soudha's pinkish-gold facade
+     - Monsoon teal        : the wet-season skies
+     - Filter coffee cream : the warmth of South Indian breakfasts
+     - Auto-rickshaw saffron / BMTC red : street energy
+     - AQI gradient        : Good green to Hazardous purple
+     ============================================================ */
+  :root {
+    --bg-primary:    #f4ede0;     /* filter-coffee cream */
+    --bg-warm:       #ebdfc8;     /* slightly deeper cream */
+    --ink-deep:      #1d2a1d;     /* deep Lalbagh shade */
+    --ink-soft:      #4a5a4a;
+    --line-soft:     #d6c8a8;
+    --soudha-gold:   #c4923c;     /* Vidhana Soudha sandstone */
+    --soudha-deep:   #8a5d1e;
+    --lalbagh:       #4d7d4f;     /* botanical green */
+    --lalbagh-deep:  #2f5230;
+    --monsoon:       #2c6e7a;     /* wet-sky teal */
+    --auto-saffron:  #e8911a;     /* auto-rickshaw yellow */
+    --bmtc-red:      #c63b1f;     /* bus livery red */
+    --silk-purple:   #5a2e6b;     /* Mysore silk */
+
+    /* AQI category colors */
+    --aqi-good:        #4caf50;
+    --aqi-moderate:    #f4c542;
+    --aqi-sensitive:   --auto-saffron;
+    --aqi-unhealthy:   #d94a3d;
+    --aqi-very:        #6b3aa0;
+    --aqi-hazard:      #4a1d3f;
+
+    --shadow-soft:  0 2px 8px rgba(45, 30, 15, 0.06);
+    --shadow-warm:  0 8px 30px rgba(74, 50, 25, 0.10);
+    --radius:       18px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg-primary);
+    color: var(--ink-deep);
+    line-height: 1.55;
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(circle at 12% 8%, rgba(196, 146, 60, 0.08) 0%, transparent 28%),
+      radial-gradient(circle at 88% 78%, rgba(77, 125, 79, 0.10) 0%, transparent 32%),
+      radial-gradient(circle at 50% 95%, rgba(44, 110, 122, 0.06) 0%, transparent 35%);
+  }
+
+  h1, h2, h3 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--ink-deep);
+  }
+
+  /* ===== HEADER ===== */
+  .hero {
+    padding: 56px 8% 32px;
+    position: relative;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .hero::before {
+    content: '';
+    position: absolute; left: 0; right: 0; bottom: 0; height: 6px;
+    background: linear-gradient(90deg,
+      var(--aqi-good) 0%, var(--aqi-moderate) 25%,
+      var(--auto-saffron) 50%, var(--aqi-unhealthy) 75%,
+      var(--aqi-very) 100%);
+  }
+  .hero-top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 28px; flex-wrap: wrap; gap: 14px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 14px;
+  }
+  .brand-mark {
+    width: 46px; height: 46px;
+    background: linear-gradient(135deg, var(--soudha-gold), var(--lalbagh));
+    border-radius: 12px;
+    display: grid; place-items: center;
+    color: #fff; font-family: 'Fraunces'; font-size: 24px; font-weight: 900;
+    box-shadow: var(--shadow-warm);
+    transform: rotate(-4deg);
+  }
+  .brand-text {
+    display: flex; flex-direction: column; line-height: 1.1;
+  }
+  .brand-name {
+    font-family: 'Fraunces'; font-size: 22px; font-weight: 900;
+    color: var(--ink-deep);
+  }
+  .brand-tagline {
+    font-size: 11px; color: var(--ink-soft); letter-spacing: 0.12em;
+    text-transform: uppercase; margin-top: 2px;
+  }
+  .meta-strip {
+    display: flex; gap: 18px; font-size: 12px; color: var(--ink-soft);
+    align-items: center;
+  }
+  .meta-item { display: flex; align-items: center; gap: 6px; }
+  .meta-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--lalbagh);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.3); }
+  }
+
+  .hero-headline {
+    font-size: clamp(36px, 6vw, 64px);
+    line-height: 1.02;
+    margin-bottom: 14px;
+    max-width: 880px;
+  }
+  .hero-headline .accent { color: var(--soudha-gold); font-style: italic; }
+  .hero-sub {
+    font-size: 17px; color: var(--ink-soft); max-width: 720px;
+  }
+
+  /* ===== MAIN CONTAINER ===== */
+  .container { padding: 40px 8%; max-width: 1480px; margin: 0 auto; }
+
+  .section {
+    margin-bottom: 64px;
+  }
+  .section-head {
+    display: flex; align-items: baseline; gap: 14px;
+    margin-bottom: 24px; flex-wrap: wrap;
+  }
+  .section-num {
+    font-family: 'JetBrains Mono'; font-size: 12px;
+    color: var(--soudha-gold); letter-spacing: 0.18em;
+  }
+  .section-title { font-size: 28px; }
+  .section-sub { color: var(--ink-soft); font-size: 14px; flex: 1; min-width: 240px; }
+
+  /* ===== CARDS ===== */
+  .card {
+    background: rgba(255, 252, 245, 0.7);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+    padding: 28px;
+    box-shadow: var(--shadow-soft);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-warm); }
+
+  .grid { display: grid; gap: 22px; }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 980px) {
+    .grid-4 { grid-template-columns: repeat(2, 1fr); }
+    .grid-3, .grid-2 { grid-template-columns: 1fr; }
+  }
+
+  /* ===== HERO READING ===== */
+  .live-hero {
+    display: grid; grid-template-columns: 1.4fr 1fr; gap: 28px;
+    margin-bottom: 64px;
+  }
+  @media (max-width: 980px) { .live-hero { grid-template-columns: 1fr; } }
+
+  .gauge-card {
+    background: linear-gradient(140deg, #fbf6e9 0%, #efe1c4 100%);
+    padding: 36px;
+    border-radius: var(--radius);
+    border: 1px solid var(--line-soft);
+    position: relative;
+    overflow: hidden;
+    box-shadow: var(--shadow-warm);
+  }
+  .gauge-card::before {
+    content: '';
+    position: absolute; top: -40%; right: -20%;
+    width: 360px; height: 360px;
+    background: radial-gradient(circle, rgba(196,146,60,0.18) 0%, transparent 65%);
+    border-radius: 50%;
+  }
+  .gauge-label {
+    font-size: 11px; letter-spacing: 0.2em; color: var(--ink-soft);
+    text-transform: uppercase; margin-bottom: 6px;
+  }
+  .gauge-value {
+    font-family: 'Fraunces'; font-size: 96px; font-weight: 900;
+    line-height: 0.95; color: var(--ink-deep); position: relative;
+  }
+  .gauge-cat {
+    display: inline-block; padding: 6px 14px; border-radius: 999px;
+    font-size: 13px; font-weight: 600; margin-top: 14px;
+    background: var(--aqi-very); color: #fff;
+  }
+  .gauge-time {
+    font-family: 'JetBrains Mono'; font-size: 12px;
+    color: var(--ink-soft); margin-top: 18px; position: relative;
+  }
+  .advisory {
+    margin-top: 20px; padding: 16px 18px;
+    background: rgba(255, 255, 255, 0.5); border-radius: 12px;
+    border-left: 3px solid var(--soudha-gold);
+    font-size: 14px; color: var(--ink-deep); line-height: 1.55;
+    position: relative;
+  }
+
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .stat-tile {
+    background: rgba(255, 252, 245, 0.7);
+    border: 1px solid var(--line-soft);
+    padding: 18px; border-radius: 14px;
+  }
+  .stat-icon { font-size: 18px; margin-bottom: 8px; }
+  .stat-num {
+    font-family: 'Fraunces'; font-size: 28px; font-weight: 700;
+    color: var(--ink-deep); line-height: 1;
+  }
+  .stat-label {
+    font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink-soft); margin-top: 6px;
+  }
+
+  /* ===== STAT CARDS (overall metrics) ===== */
+  .metric {
+    background: rgba(255, 252, 245, 0.7);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius); padding: 22px 24px;
+  }
+  .metric-num {
+    font-family: 'Fraunces'; font-size: 38px; font-weight: 900;
+    line-height: 1; color: var(--ink-deep);
+  }
+  .metric-label {
+    font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--ink-soft); margin-top: 8px;
+  }
+  .metric-detail {
+    font-size: 12px; color: var(--ink-soft); margin-top: 4px;
+  }
+  .metric-bar {
+    margin-top: 14px; width: 100%; height: 4px;
+    background: var(--bg-warm); border-radius: 2px; overflow: hidden;
+  }
+  .metric-bar > div {
+    height: 100%; border-radius: 2px;
+    background: linear-gradient(90deg, var(--lalbagh), var(--soudha-gold));
+    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* ===== CHART CONTAINERS ===== */
+  .chart-wrap { position: relative; height: 320px; margin-top: 12px; }
+  .chart-wrap.tall { height: 400px; }
+  .chart-title { font-family: 'Fraunces'; font-size: 18px; margin-bottom: 4px; }
+  .chart-sub { font-size: 12px; color: var(--ink-soft); margin-bottom: 16px; }
+
+  /* ===== HEATMAP ===== */
+  .heatmap {
+    display: grid;
+    grid-template-columns: 36px repeat(24, 1fr);
+    gap: 2px;
+    margin-top: 12px;
+  }
+  .heat-cell {
+    aspect-ratio: 1;
+    border-radius: 3px;
+    transition: transform 0.18s ease;
+    cursor: pointer;
+  }
+  .heat-cell:hover { transform: scale(1.4); z-index: 2; box-shadow: var(--shadow-warm); }
+  .heat-axis {
+    font-family: 'JetBrains Mono'; font-size: 10px;
+    color: var(--ink-soft); display: flex; align-items: center;
+  }
+  .heat-axis-row { justify-content: flex-end; padding-right: 6px; }
+
+  .legend {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: var(--ink-soft);
+    margin-top: 14px;
+  }
+  .legend-grad {
+    flex: 1; max-width: 240px; height: 8px; border-radius: 4px;
+    background: linear-gradient(90deg,
+      #4caf50 0%, #f4c542 25%, #e8911a 50%,
+      #d94a3d 75%, #6b3aa0 100%);
+  }
+
+  /* ===== CATEGORY DISTRIBUTION BARS ===== */
+  .cat-list { display: flex; flex-direction: column; gap: 12px; }
+  .cat-row { display: flex; align-items: center; gap: 14px; }
+  .cat-swatch {
+    width: 12px; height: 12px; border-radius: 4px; flex-shrink: 0;
+  }
+  .cat-name { width: 200px; font-size: 14px; font-weight: 500; }
+  .cat-bar {
+    flex: 1; height: 22px; background: var(--bg-warm); border-radius: 6px;
+    overflow: hidden; position: relative;
+  }
+  .cat-bar > div {
+    height: 100%; border-radius: 6px;
+    transition: width 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex; align-items: center; padding: 0 8px;
+    color: #fff; font-size: 11px; font-weight: 600;
+  }
+  .cat-pct { width: 50px; text-align: right; font-weight: 600; font-size: 13px; }
+  .cat-count { width: 60px; text-align: right; color: var(--ink-soft);
+    font-family: 'JetBrains Mono'; font-size: 12px; }
+
+  /* ===== MODEL BATTLE CARDS ===== */
+  .battle-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 24px; align-items: center; }
+  @media (max-width: 980px) { .battle-grid { grid-template-columns: 1fr; } }
+  .battle-card {
+    padding: 24px; border-radius: var(--radius);
+    border: 2px solid transparent;
+  }
+  .battle-card.mlr {
+    background: linear-gradient(135deg, #f9efd5, #f0d9a3);
+    border-color: var(--auto-saffron);
+  }
+  .battle-card.lstm {
+    background: linear-gradient(135deg, #d8e4d4, #b8d0b9);
+    border-color: var(--lalbagh-deep);
+  }
+  .battle-name {
+    font-family: 'Fraunces'; font-size: 20px; font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .battle-type {
+    font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--ink-soft); margin-bottom: 18px;
+  }
+  .battle-metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .battle-met-num {
+    font-family: 'Fraunces'; font-size: 24px; font-weight: 900;
+    color: var(--ink-deep);
+  }
+  .battle-met-label {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink-soft); margin-top: 2px;
+  }
+  .versus {
+    font-family: 'Fraunces'; font-size: 32px; font-weight: 900;
+    color: var(--bmtc-red); text-align: center;
+  }
+
+  /* ===== FORECAST STRIP ===== */
+  .forecast-strip {
+    display: grid; grid-template-columns: repeat(24, 1fr); gap: 4px;
+    margin-top: 16px;
+  }
+  .forecast-cell {
+    background: var(--bg-warm); border-radius: 6px;
+    padding: 10px 4px; text-align: center;
+    border: 1px solid var(--line-soft);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+    cursor: pointer;
+  }
+  .forecast-cell:hover { transform: translateY(-3px); box-shadow: var(--shadow-warm); }
+  .forecast-hr { font-family: 'JetBrains Mono'; font-size: 10px; color: var(--ink-soft); }
+  .forecast-aqi {
+    font-family: 'Fraunces'; font-size: 18px; font-weight: 900;
+    margin-top: 4px;
+  }
+  .forecast-bar {
+    margin-top: 6px; height: 4px; border-radius: 2px;
+    background: var(--lalbagh);
+  }
+
+  /* ===== FOOTER ===== */
+  .footer {
+    padding: 36px 8% 56px; border-top: 1px solid var(--line-soft);
+    text-align: center; color: var(--ink-soft); font-size: 12px;
+    background: var(--bg-warm);
+  }
+  .footer-credit {
+    margin-top: 8px; font-family: 'JetBrains Mono'; font-size: 11px;
+  }
+
+  /* ===== KARNATAKA SILHOUETTE BACKGROUND ELEMENT ===== */
+  .silhouette-strip {
+    position: relative; height: 60px; overflow: hidden;
+    margin-bottom: 32px; opacity: 0.18;
+  }
+  .silhouette-strip svg { width: 100%; height: 100%; }
+
+  /* ===== LOADING STATE ===== */
+  .loading {
+    text-align: center; padding: 80px 20px;
+    color: var(--ink-soft); font-size: 14px;
+  }
+  .loading-dot {
+    display: inline-block; width: 10px; height: 10px;
+    background: var(--soudha-gold); border-radius: 50%;
+    margin: 0 3px; animation: bounce 1.4s ease-in-out infinite both;
+  }
+  .loading-dot:nth-child(2) { animation-delay: 0.18s; }
+  .loading-dot:nth-child(3) { animation-delay: 0.36s; }
+  @keyframes bounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+    40% { transform: scale(1); opacity: 1; }
+  }
+</style>
+</head>
+
+<body>
+
+<!-- ===== HERO ===== -->
+<header class="hero">
+  <div class="hero-top">
+    <div class="brand">
+      <div class="brand-mark">ಬ</div>
+      <div class="brand-text">
+        <span class="brand-name">BengaluruAir</span>
+        <span class="brand-tagline">An IoT + Deep Learning AQI Intelligence System</span>
+      </div>
+    </div>
+    <div class="meta-strip">
+      <div class="meta-item"><span class="meta-dot"></span> <span id="meta-status">Live data stream</span></div>
+      <div class="meta-item">·</div>
+      <div class="meta-item" id="meta-period">Loading...</div>
+      <div class="meta-item">·</div>
+      <div class="meta-item" id="meta-count">— observations</div>
+    </div>
+  </div>
+
+  <h1 class="hero-headline">
+    What does Bengaluru's air <span class="accent">actually</span><br>
+    look like, hour by hour?
+  </h1>
+  <p class="hero-sub">
+    A primary-data study of the city's air quality based on 1,416 hourly readings from an
+    ESP32-based IoT prototype. Two predictive models — Multiple Linear Regression and a
+    Long Short-Term Memory neural network — compete to forecast the Air Quality Index
+    using only ambient CO₂, temperature, humidity and time features.
+  </p>
+</header>
+
+<!-- ===== MAIN ===== -->
+<main class="container">
+
+  <div id="loader" class="loading">
+    Loading dashboard
+    <span class="loading-dot"></span><span class="loading-dot"></span><span class="loading-dot"></span>
+  </div>
+
+  <div id="dashboard" style="display:none;">
+
+    <!-- =================== LIVE READING + STATS =================== -->
+    <div class="live-hero">
+      <div class="gauge-card">
+        <div class="gauge-label">Latest Recorded AQI</div>
+        <div class="gauge-value" id="gauge-value">—</div>
+        <div id="gauge-cat" class="gauge-cat">—</div>
+        <div class="gauge-time" id="gauge-time">—</div>
+        <div class="advisory" id="advisory">—</div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-tile">
+          <div class="stat-icon">🌫️</div>
+          <div class="stat-num" id="stat-co2">—</div>
+          <div class="stat-label">CO₂ (ppm)</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-icon">🌡️</div>
+          <div class="stat-num" id="stat-temp">—</div>
+          <div class="stat-label">Temperature (°C)</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-icon">💧</div>
+          <div class="stat-num" id="stat-hum">—</div>
+          <div class="stat-label">Humidity (%)</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-icon">📈</div>
+          <div class="stat-num" id="stat-mean">—</div>
+          <div class="stat-label">Period Avg AQI</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================== SECTION 1: CATEGORY DISTRIBUTION =================== -->
+    <section class="section">
+      <div class="section-head">
+        <div class="section-num">/01</div>
+        <h2 class="section-title">How often does each AQI category occur?</h2>
+        <div class="section-sub">CPCB-defined bands across the 1,416-hour study window</div>
+      </div>
+      <div class="card">
+        <div id="cat-list" class="cat-list"></div>
+      </div>
+    </section>
+
+    <!-- =================== SECTION 2: TIME SERIES =================== -->
+    <section class="section">
+      <div class="section-head">
+        <div class="section-num">/02</div>
+        <h2 class="section-title">The two-month story of Bengaluru's air</h2>
+        <div class="section-sub">Hourly AQI from Feb 1 to Mar 31, 2025 — overlaid with traffic-pulse cycles</div>
+      </div>
+      <div class="card">
+        <div class="chart-title">AQI time series with category bands</div>
+        <div class="chart-sub">Each peak above 200 marks a "Very Unhealthy" episode — typically evening traffic + low wind dispersal</div>
+        <div class="chart-wrap tall"><canvas id="chart-ts"></canvas></div>
+      </div>
+    </section>
+
+    <!-- =================== SECTION 3: HOURLY PROFILE + CORRELATIONS =================== -->
+    <section class="section">
+      <div class="section-head">
+        <div class="section-num">/03</div>
+        <h2 class="section-title">When is the air worst?</h2>
+        <div class="section-sub">The diurnal AQI profile — averaged across all study days</div>
+      </div>
+      <div class="grid grid-2">
+        <div class="card">
+          <div class="chart-title">Average AQI by hour of day</div>
+          <div class="chart-sub">Rush-hour signature visible at 8 AM and 7 PM</div>
+          <div class="chart-wrap"><canvas id="chart-hourly"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="chart-title">Feature → AQI correlation</div>
+          <div class="chart-sub">Pearson correlation of each feature with AQI</div>
+          <div class="chart-wrap"><canvas id="chart-corr"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================== SECTION 4: HEATMAP =================== -->
+    <section class="section">
+      <div class="section-head">
+        <div class="section-num">/04</div>
+        <h2 class="section-title">Day × Hour heatmap</h2>
+        <div class="section-sub">Mean AQI for every (day, hour) cell across the study period</div>
+      </div>
+      <div class="card">
+        <div class="chart-title">When does pollution cluster?</div>
+        <div class="chart-sub">Darker = higher AQI. Hover any cell for the precise value.</div>
+        <div id="heatmap" class="heatmap"></div>
+        <div class="legend">
+          <span>Good</span>
+          <div class="legend-grad"></div>
+          <span>Very Unhealthy</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================== SECTION 5: MODEL BATTLE =================== -->
+    <section class="section">
+      <div class="section-head">
+        <div class="section-num">/05</div>
+        <h2 class="section-title">Linear Regression vs. LSTM</h2>
+        <div class="section-sub">Two models trained on 80% of the data, evaluated on the held-out 20%</div>
+      </div>
+      <div class="card">
+        <div class="battle-grid">
+          <div class="battle-card mlr">
+            <div class="battle-name" id="mlr-name">Multiple Linear Regression</div>
+            <div class="battle-type">Statistical baseline · scikit-learn</div>
+            <div class="battle-metrics">
+              <div>
+                <div class="battle-met-num" id="mlr-mae">—</div>
+                <div class="battle-met-label">MAE</div>
+              </div>
+              <div>
+                <div class="battle-met-num" id="mlr-rmse">—</div>
+                <div class="battle-met-label">RMSE</div>
+              </div>
+              <div>
+                <div class="battle-met-num" id="mlr-r2">—</div>
+                <div class="battle-met-label">R²</div>
+              </div>
+            </div>
+          </div>
+          <div class="versus">vs.</div>
+          <div class="battle-card lstm">
+            <div class="battle-name" id="lstm-name">LSTM Neural Network</div>
+            <div class="battle-type">Sequential deep learning · TensorFlow</div>
+            <div class="battle-metrics">
+              <div>
+                <div class="battle-met-num" id="lstm-mae">—</div>
+                <div class="battle-met-label">MAE</div>
+              </div>
+              <div>
+                <div class="battle-met-num" id="lstm-rmse">—</div>
+                <div class="battle-met-label">RMSE</div>
+              </div>
+              <div>
+                <div class="battle-met-num" id="lstm-r2">—</div>
+                <div class="battle-met-label">R²</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top: 28px; padding: 18px; background: rgba(196, 146, 60, 0.08);
+                    border-radius: 12px; text-align: center;">
+          <span style="font-family: 'Fraunces'; font-size: 22px; font-weight: 900;
+                       color: var(--bmtc-red);" id="improvement">—</span>
+          <span style="color: var(--ink-soft);"> RMSE improvement when LSTM replaces Linear Regression</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================== SECTION 6: PREDICTED VS ACTUAL =================== -->
+    <section class="section">
+      <div class="section-head">
+        <div class="section-num">/06</div>
+        <h2 class="section-title">How well does the linear model track reality?</h2>
+        <div class="section-sub">Test-set predictions plotted against true AQI values</div>
+      </div>
+      <div class="card">
+        <div class="chart-wrap tall"><canvas id="chart-pred"></canvas></div>
+      </div>
+    </section>
+
+    <!-- =================== SECTION 7: 24-HOUR FORECAST =================== -->
+    <section class="section">
+      <div class="section-head">
+        <div class="section-num">/07</div>
+        <h2 class="section-title">Next 24 hours</h2>
+        <div class="section-sub">A diurnal-profile forecast based on the most recent week of observations</div>
+      </div>
+      <div class="card">
+        <div class="chart-title">Hour-by-hour AQI forecast</div>
+        <div class="chart-sub">Color-coded by predicted category</div>
+        <div id="forecast" class="forecast-strip"></div>
+      </div>
+    </section>
+
+  </div>
+
+</main>
+
+<footer class="footer">
+  <div>
+    Designed in Bengaluru · Built on Python · Visualised with Chart.js<br>
+    M.Tech Thesis · Bakkiyashree, Department of CSE, Jain University
+  </div>
+  <div class="footer-credit" id="footer-credit">
+    Data sourced from a Google Sheet — generated <span id="gen-time">—</span>
+  </div>
+</footer>
+
+<script>
+/* ============================================================
+   DASHBOARD CONTROLLER
+   ============================================================ */
+
+const AQI_COLORS = {
+  "Good":                "#4caf50",
+  "Moderate":            "#f4c542",
+  "Unhealthy Sensitive": "#e8911a",
+  "Unhealthy":           "#d94a3d",
+  "Very Unhealthy":      "#6b3aa0",
+  "Hazardous":           "#4a1d3f"
+};
+
+function colorForAqi(v) {
+  if (v <= 50) return AQI_COLORS["Good"];
+  if (v <= 100) return AQI_COLORS["Moderate"];
+  if (v <= 150) return AQI_COLORS["Unhealthy Sensitive"];
+  if (v <= 200) return AQI_COLORS["Unhealthy"];
+  if (v <= 300) return AQI_COLORS["Very Unhealthy"];
+  return AQI_COLORS["Hazardous"];
+}
+
+function fmt(n, d=1) {
+  if (n === null || n === undefined || isNaN(n)) return "—";
+  return Number(n).toFixed(d);
+}
+
+/* ===== Chart.js global defaults ===== */
+Chart.defaults.font.family = "'Inter', sans-serif";
+Chart.defaults.color = '#4a5a4a';
+Chart.defaults.borderColor = '#d6c8a8';
+
+/* ===== MAIN ===== */
+async function init() {
+  const resp = await fetch('data/dashboard_data.json');
+  const data = await resp.json();
+  document.getElementById('loader').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+
+  renderMeta(data);
+  renderLatest(data);
+  renderStats(data);
+  renderCategoryDistribution(data);
+  renderTimeSeries(data);
+  renderHourlyProfile(data);
+  renderCorrelation(data);
+  renderHeatmap(data);
+  renderModelBattle(data);
+  renderPredictedVsActual(data);
+  renderForecast(data);
+}
+
+function renderMeta(data) {
+  document.getElementById('meta-period').textContent = data.meta.study_period;
+  document.getElementById('meta-count').textContent = data.meta.total_observations + ' observations';
+  document.getElementById('gen-time').textContent = data.meta.generated_at;
+}
+
+function renderLatest(data) {
+  const l = data.latest;
+  document.getElementById('gauge-value').textContent = l.aqi;
+  const cat = document.getElementById('gauge-cat');
+  cat.textContent = l.category;
+  cat.style.background = colorForAqi(l.aqi);
+  document.getElementById('gauge-time').textContent = '⌛ ' + l.timestamp;
+  document.getElementById('advisory').textContent = l.advisory || data.advisories[l.category];
+
+  document.getElementById('stat-co2').textContent = fmt(l.co2, 0);
+  document.getElementById('stat-temp').textContent = fmt(l.temperature, 1);
+  document.getElementById('stat-hum').textContent = fmt(l.humidity, 0);
+}
+
+function renderStats(data) {
+  document.getElementById('stat-mean').textContent = fmt(data.stats.AQI.mean, 0);
+}
+
+function renderCategoryDistribution(data) {
+  const list = document.getElementById('cat-list');
+  list.innerHTML = '';
+  const max = Math.max(...data.category_distribution.map(c => c.percent));
+  data.category_distribution.forEach((c, idx) => {
+    const row = document.createElement('div');
+    row.className = 'cat-row';
+    const color = AQI_COLORS[c.category] || '#999';
+    row.innerHTML = `
+      <div class="cat-swatch" style="background:${color};"></div>
+      <div class="cat-name">${c.category}</div>
+      <div class="cat-bar">
+        <div style="width:0%; background:${color};">${c.percent.toFixed(1)}%</div>
+      </div>
+      <div class="cat-pct">${c.percent.toFixed(1)}%</div>
+      <div class="cat-count">${c.count}</div>
+    `;
+    list.appendChild(row);
+    setTimeout(() => {
+      const bar = row.querySelector('.cat-bar > div');
+      bar.style.width = (c.percent / max * 100) + '%';
+    }, idx * 100 + 50);
+  });
+}
+
+function renderTimeSeries(data) {
+  const ts = data.time_series;
+  const colors = ts.aqi.map(colorForAqi);
+  new Chart(document.getElementById('chart-ts'), {
+    type: 'line',
+    data: {
+      labels: ts.timestamps,
+      datasets: [
+        {
+          label: 'AQI',
+          data: ts.aqi,
+          borderColor: '#2c6e7a',
+          backgroundColor: 'rgba(44, 110, 122, 0.08)',
+          fill: true,
+          tension: 0.25,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          pointHoverBackgroundColor: ctx => colors[ctx.dataIndex],
+          borderWidth: 1.6
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1d2a1d', titleColor: '#fff', bodyColor: '#fff',
+          padding: 12, cornerRadius: 10
+        }
+      },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8, color: '#7a8a7a' }, grid: { display: false } },
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: 'AQI', color: '#4a5a4a' },
+          grid: { color: 'rgba(214, 200, 168, 0.4)' }
+        }
+      }
+    }
+  });
+}
+
+function renderHourlyProfile(data) {
+  const hp = data.hourly_profile;
+  new Chart(document.getElementById('chart-hourly'), {
+    type: 'bar',
+    data: {
+      labels: hp.hours.map(h => h + ':00'),
+      datasets: [{
+        label: 'Mean AQI',
+        data: hp.mean,
+        backgroundColor: hp.mean.map(colorForAqi),
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1d2a1d', titleColor: '#fff', bodyColor: '#fff',
+          padding: 12, cornerRadius: 10
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: '#7a8a7a' } },
+        y: { beginAtZero: true, grid: { color: 'rgba(214, 200, 168, 0.4)' } }
+      }
+    }
+  });
+}
+
+function renderCorrelation(data) {
+  const labels = data.correlation.labels;
+  const aqiIdx = labels.indexOf('AQI');
+  const corrWithAqi = labels.map((_, i) => data.correlation.matrix[i][aqiIdx]);
+  // Skip AQI itself
+  const features = labels.filter(l => l !== 'AQI');
+  const values = corrWithAqi.filter((_, i) => labels[i] !== 'AQI');
+  const colors = values.map(v => v > 0 ? '#4d7d4f' : '#c63b1f');
+
+  new Chart(document.getElementById('chart-corr'), {
+    type: 'bar',
+    data: {
+      labels: features,
+      datasets: [{
+        label: 'Pearson r vs AQI',
+        data: values,
+        backgroundColor: colors,
+        borderRadius: 6
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1d2a1d', titleColor: '#fff', bodyColor: '#fff',
+          padding: 12, cornerRadius: 10,
+          callbacks: { label: ctx => 'r = ' + ctx.raw.toFixed(3) }
+        }
+      },
+      scales: {
+        x: { min: -1, max: 1, grid: { color: 'rgba(214, 200, 168, 0.4)' } },
+        y: { grid: { display: false } }
+      }
+    }
+  });
+}
+
+function renderHeatmap(data) {
+  const hm = data.heatmap;
+  const grid = document.getElementById('heatmap');
+  grid.innerHTML = '';
+
+  // Header row: empty + hour labels
+  grid.appendChild(document.createElement('div'));
+  hm.hours.forEach(h => {
+    const c = document.createElement('div');
+    c.className = 'heat-axis';
+    c.style.justifyContent = 'center';
+    c.textContent = (h % 3 === 0) ? h : '';
+    grid.appendChild(c);
+  });
+
+  // Data rows
+  hm.days.forEach((day, di) => {
+    const lbl = document.createElement('div');
+    lbl.className = 'heat-axis heat-axis-row';
+    lbl.textContent = 'D' + day;
+    grid.appendChild(lbl);
+    hm.hours.forEach((hr, hi) => {
+      const v = hm.matrix[di][hi];
+      const cell = document.createElement('div');
+      cell.className = 'heat-cell';
+      if (v === null || v === undefined) {
+        cell.style.background = '#eee';
+      } else {
+        cell.style.background = colorForAqi(v);
+        cell.title = `Day ${day} · ${hr}:00 → AQI ${Math.round(v)}`;
+      }
+      grid.appendChild(cell);
+    });
+  });
+}
+
+function renderModelBattle(data) {
+  const m = data.models;
+  document.getElementById('mlr-mae').textContent = fmt(m.mlr.MAE, 1);
+  document.getElementById('mlr-rmse').textContent = fmt(m.mlr.RMSE, 1);
+  document.getElementById('mlr-r2').textContent = fmt(m.mlr.R2, 2);
+
+  document.getElementById('lstm-mae').textContent = fmt(m.lstm.MAE, 1);
+  document.getElementById('lstm-rmse').textContent = fmt(m.lstm.RMSE, 1);
+  document.getElementById('lstm-r2').textContent = fmt(m.lstm.R2, 2);
+
+  document.getElementById('improvement').textContent = m.improvement_rmse_pct.toFixed(1) + '%';
+}
+
+function renderPredictedVsActual(data) {
+  const m = data.models.mlr;
+  // Sample for plotting (every Nth point for clarity)
+  const step = Math.max(1, Math.floor(m.y_true.length / 200));
+  const x = []; const trueArr = []; const predArr = [];
+  for (let i = 0; i < m.y_true.length; i += step) {
+    x.push(i);
+    trueArr.push(m.y_true[i]);
+    predArr.push(m.y_pred[i]);
+  }
+
+  new Chart(document.getElementById('chart-pred'), {
+    type: 'line',
+    data: {
+      labels: x,
+      datasets: [
+        {
+          label: 'Actual AQI',
+          data: trueArr,
+          borderColor: '#1d2a1d',
+          backgroundColor: 'rgba(29, 42, 29, 0.08)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.25
+        },
+        {
+          label: 'MLR Predicted',
+          data: predArr,
+          borderColor: '#c4923c',
+          backgroundColor: 'rgba(196, 146, 60, 0.10)',
+          borderWidth: 2,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          tension: 0.25
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 18, padding: 16 } },
+        tooltip: {
+          backgroundColor: '#1d2a1d', titleColor: '#fff', bodyColor: '#fff',
+          padding: 12, cornerRadius: 10
+        }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Test-set time step (sampled)' },
+             grid: { display: false }, ticks: { color: '#7a8a7a' } },
+        y: { beginAtZero: true, title: { display: true, text: 'AQI' },
+             grid: { color: 'rgba(214, 200, 168, 0.4)' } }
+      }
+    }
+  });
+}
+
+function renderForecast(data) {
+  const grid = document.getElementById('forecast');
+  grid.innerHTML = '';
+  data.forecast.forEach((f, idx) => {
+    const cell = document.createElement('div');
+    cell.className = 'forecast-cell';
+    const color = colorForAqi(f.aqi_predicted);
+    cell.innerHTML = `
+      <div class="forecast-hr">+${idx + 1}h</div>
+      <div class="forecast-aqi" style="color:${color};">${f.aqi_predicted}</div>
+      <div class="forecast-bar" style="background:${color};"></div>
+    `;
+    cell.title = `${f.timestamp} → ${f.category} (AQI ${f.aqi_predicted})`;
+    grid.appendChild(cell);
+  });
+}
+
+init();
+</script>
+
+</body>
+</html>
